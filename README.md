@@ -1,40 +1,45 @@
-# Zoo Tour Guide Agent
+# Customer Intent Router Agent
 
-This project implements a conversational AI agent that acts as a virtual tour guide for a zoo. It's designed to answer user questions about animals by combining information from a general knowledge base (Wikipedia) with (planned) internal zoo data.
+This project implements an intelligent triage microservice for customer support. It's designed to receive a customer query, enrich it with data from an internal database, and route it to the appropriate support team with a specific priority.
 
 The agent is built using the [Google Agent Development Kit (ADK)](https://developers.google.com/agent-builder/docs) and leverages a multi-agent architecture to handle user requests in a structured way.
 
 ## Features
 
-- **Conversational Interface**: Greets users and naturally captures their questions.
-- **Multi-Agent Workflow**: Utilizes a sequence of specialized agents for research and response generation.
-- **External Knowledge Integration**: Uses Wikipedia to fetch general facts about animals.
-- **Extensible Design**: Structured to easily incorporate new tools, such as an internal zoo database for animal-specific details (e.g., names, locations within the zoo).
+- **Sequential Processing Pipeline**: Uses a multi-agent workflow to ensure each step of the triage process is handled by a specialized agent.
+- **Structured Data Extraction**: Parses free-form customer queries into structured data (like `order_id` or `user_id`).
+- **Database Integration**: Simulates looking up customer and order details (like warranty status) from a SQL database.
+- **Rule-Based Routing**: Applies a clear set of business rules to the combined data to make a routing decision.
+- **Strict Output Schema**: Produces a JSON object validated by Pydantic, ensuring reliable integration with downstream systems like CRMs or ticketing platforms.
 
 ## How It Works (Architecture)
 
-The application is orchestrated by a root agent (`greeter`) that delegates tasks to a sequential workflow (`tour_guide_workflow`). This workflow ensures a clean separation of concerns between gathering information and presenting it to the user.
+The application is orchestrated by a root agent (`greeter`) that delegates tasks to a sequential workflow (`intent_router_workflow`). This workflow ensures a clean separation of concerns between understanding the query, gathering data, and making a decision.
 
 The agent flow is as follows:
 
 1.  **`greeter` (Root Agent)**:
     -   This is the main entry point.
-    -   It greets the user and waits for their question about an animal.
-    -   It uses the `add_prompt_to_state` tool to save the user's query.
-    -   It then transfers control to the `tour_guide_workflow`.
+    -   It greets the customer and uses the `save_customer_query` tool to save the user's raw message into the agent's state.
+    -   It then transfers control to the `intent_router_workflow`.
 
-2.  **`tour_guide_workflow` (Sequential Agent)**:
-    This agent manages a two-step process to answer the user's query.
+2.  **`intent_router_workflow` (Sequential Agent)**:
+    This agent manages a three-step process to triage the support ticket.
 
-    -   **Step 1: `comprehensive_researcher`**:
-        -   Its goal is to gather all necessary information to answer the user's prompt.
-        -   It has access to a **Wikipedia tool** for general knowledge (e.g., "What do red pandas eat?").
-        -   The agent is designed to be extended with a tool for accessing internal zoo data (e.g., "What is our red panda's name and where can I find her?").
-        -   It synthesizes its findings into a `research_data` output.
+    -   **Step 1: `intent_extractor`**:
+        -   Reads the raw customer query from state.
+        -   Extracts key information like `order_id`, `user_id`, and a summary of the issue.
+        -   Saves this structured data to the agent's state as `EXTRACTED_INTENT`.
 
-    -   **Step 2: `response_formatter`**:
-        -   This agent takes the `research_data` collected by the researcher.
-        -   It formats this data into a friendly, engaging, and easy-to-read response, acting as the "voice" of the zoo tour guide.
+    -   **Step 2: `db_lookup`**:
+        -   Uses the identifiers from `EXTRACTED_INTENT` to call the `query_order_database` tool.
+        -   This tool simulates a lookup against a SQL database to find order details and warranty status.
+        -   The result is saved to the agent's state as `DB_RESULT`.
+
+    -   **Step 3: `intent_router`**:
+        -   This agent synthesizes all the information available in the state: `CUSTOMER_QUERY`, `EXTRACTED_INTENT`, and `DB_RESULT`.
+        -   It applies a predefined set of routing rules to this context.
+        -   It produces the final `ROUTING_DECISION` as a JSON object containing the `route`, `priority`, `reason`, and a `confidence` score.
 
 ## Project Structure
 
@@ -42,7 +47,6 @@ The agent flow is as follows:
 customer_guide_agent/
 ├── agent.py          # Main application file defining the agents and workflow.
 ├── requirements.txt  # Python dependencies.
-└── .env              # Environment variables (you need to create this).
 ```
 
 ## Setup and Installation
@@ -60,14 +64,7 @@ customer_guide_agent/
     pip install -r requirements.txt
     ```
 
-4.  **Set Up Environment Variables**
-    Create a file named `.env` in the root of the project directory and add the following line. This specifies the generative model the agents will use.
-
-    ```
-    MODEL="gemini-1.5-pro-latest"
-    ```
-
-5.  **Google Cloud Authentication**
+4.  **Google Cloud Authentication**
     The application uses Google Cloud Logging. Ensure your local environment is authenticated with Google Cloud:
     ```bash
     gcloud auth application-default login
@@ -75,4 +72,15 @@ customer_guide_agent/
 
 ## Running the Agent
 
-This project defines the agent's logic. To run it, you will need an entry point that loads the `root_agent` and starts an interaction loop. You can use the Google ADK's built-in `adk.start_repl_loop()` for a command-line interface.
+This project is designed to be run as a web service using the Google Agent Development Kit (ADK), as recommended in the `agent.py` docstring.
+
+If you have made changes to the `agent.py` file, deploying them is as simple as stopping the current web server (if it's running) and starting it again with the updated code.
+
+1.  **Stop the Old Server**: If the `adk web` command is currently running in a terminal, stop it by pressing `Ctrl+C`.
+
+2.  **Start the New Server**: From your terminal in the project's root directory, run the following command:
+    ```bash
+    adk web --port 8080 --allow_origins="*"
+    ```
+
+This will start a local web server with your latest code changes. You can then interact with the agent by sending POST requests to the server or by using the Web Preview feature if you are running in a supported environment like Google Cloud Shell.
